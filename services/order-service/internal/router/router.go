@@ -27,7 +27,7 @@ func SetupRouter(orderHandler *handler.OrderHandler) *gin.Engine {
 		}
 
 		api.GET(
-			"/users/:user_id/orders",
+			"/user/:user_id/orders",
 			orderHandler.GetUserOrders,
 		)
 	}
