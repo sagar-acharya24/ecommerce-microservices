@@ -42,6 +42,7 @@ func main() {
 		userProxy,
 		productProxy,
 		orderProxy,
+		cfg.JWTSecret,
 	)
 
 	log.Println("API Gateway initialized successfully")

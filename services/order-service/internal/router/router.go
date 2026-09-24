@@ -2,7 +2,9 @@ package router
 
 import (
 	"github.com/gin-gonic/gin"
+
 	"github.com/sagar-acharya24/ecommerce-microservices/services/order-service/internal/handler"
+	"github.com/sagar-acharya24/ecommerce-microservices/services/order-service/internal/middleware"
 )
 
 func SetupRouter(orderHandler *handler.OrderHandler) *gin.Engine {
@@ -13,20 +15,19 @@ func SetupRouter(orderHandler *handler.OrderHandler) *gin.Engine {
 	router.Use(gin.Logger())
 	router.Use(gin.Recovery())
 
-	if err := router.SetTrustedProxies(nil); err != nil {
-		panic(err)
-	}
-
 	api := router.Group("/api/v1")
+
+	authenticated := api.Group("")
+	authenticated.Use(middleware.AuthenticatedUserMiddleware())
 	{
-		orders := api.Group("/orders")
+		orders := authenticated.Group("/orders")
 		{
 			orders.POST("", orderHandler.CreateOrder)
 			orders.GET("/:id", orderHandler.GetOrder)
 			orders.PUT("/:id/cancel", orderHandler.CancelOrder)
 		}
 
-		api.GET(
+		authenticated.GET(
 			"/user/:user_id/orders",
 			orderHandler.GetUserOrders,
 		)

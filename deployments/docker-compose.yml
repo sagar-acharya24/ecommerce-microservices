@@ -1,0 +1,196 @@
+services:
+
+  # ============================================
+  # PostgreSQL
+  # ============================================
+
+  postgres:
+    image: postgres:16-alpine
+
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres@123
+      POSTGRES_DB: postgres
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+    networks:
+      - ecommerce-network
+
+
+  # ============================================
+  # Redis
+  # ============================================
+
+  redis:
+    image: redis:7-alpine
+
+    volumes:
+      - redis_data:/data
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+    networks:
+      - ecommerce-network
+
+
+  # ============================================
+  # User Service
+  # ============================================
+
+  user-service:
+    build:
+      context: ..
+      dockerfile: services/user-service/Dockerfile
+
+    environment:
+      APP_ENV: production
+
+      USER_SERVICE_PORT: 8081
+
+      USER_DB_HOST: postgres
+      USER_DB_PORT: 5432
+      USER_DB_USER: postgres
+      USER_DB_PASSWORD: postgres@123
+      USER_DB_NAME: ecommerce_users
+
+      JWT_SECRET: ecommerce-secret
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    networks:
+      - ecommerce-network
+
+
+  # ============================================
+  # Product Service
+  # ============================================
+
+  product-service:
+    build:
+      context: ..
+      dockerfile: services/product-service/Dockerfile
+
+    environment:
+      APP_ENV: production
+
+      PRODUCT_SERVICE_PORT: 8082
+
+      PRODUCT_DB_HOST: postgres
+      PRODUCT_DB_PORT: 5432
+      PRODUCT_DB_USER: postgres
+      PRODUCT_DB_PASSWORD: postgres@123
+      PRODUCT_DB_NAME: ecommerce_products
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ""
+      REDIS_DB: 0
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    networks:
+      - ecommerce-network
+
+
+  # ============================================
+  # Order Service
+  # ============================================
+
+  order-service:
+    build:
+      context: ..
+      dockerfile: services/order-service/Dockerfile
+
+    environment:
+      APP_ENV: production
+
+      ORDER_SERVICE_PORT: 8083
+
+      ORDER_DB_HOST: postgres
+      ORDER_DB_PORT: 5432
+      ORDER_DB_USER: postgres
+      ORDER_DB_PASSWORD: postgres@123
+      ORDER_DB_NAME: ecommerce_orders
+
+      PRODUCT_SERVICE_URL: http://product-service:8082
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      product-service:
+        condition: service_started
+
+    networks:
+      - ecommerce-network
+
+
+  # ============================================
+  # API Gateway
+  # ============================================
+
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: api-gateway/Dockerfile
+
+    environment:
+      APP_ENV: production
+
+      API_GATEWAY_PORT: 8080
+
+      USER_SERVICE_URL: http://user-service:8081
+      PRODUCT_SERVICE_URL: http://product-service:8082
+      ORDER_SERVICE_URL: http://order-service:8083
+
+      JWT_SECRET: ecommerce-secret
+
+    ports:
+      - "8080:8080"
+
+    depends_on:
+      user-service:
+        condition: service_started
+      product-service:
+        condition: service_started
+      order-service:
+        condition: service_started
+
+    networks:
+      - ecommerce-network
+
+
+# ============================================
+# Volumes
+# ============================================
+
+volumes:
+  postgres_data:
+  redis_data:
+
+
+# ============================================
+# Network
+# ============================================
+
+networks:
+  ecommerce-network:
+    driver: bridge

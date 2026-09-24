@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/sagar-acharya24/ecommerce-microservices/services/order-service/internal/client"
+	"github.com/sagar-acharya24/ecommerce-microservices/services/order-service/internal/middleware"
 	"github.com/sagar-acharya24/ecommerce-microservices/services/order-service/internal/model"
 	"github.com/sagar-acharya24/ecommerce-microservices/services/order-service/internal/repository"
 	"github.com/sagar-acharya24/ecommerce-microservices/services/order-service/internal/service"
@@ -88,10 +89,15 @@ func setupTestRouter(
 
 	handler := NewOrderHandler(orderService)
 
+	router.Use(func(c *gin.Context) {
+		c.Set(middleware.UserIDKey, uint(1))
+		c.Next()
+	})
+
 	router.POST("/api/v1/orders", handler.CreateOrder)
 	router.GET("/api/v1/orders/:id", handler.GetOrder)
 	router.GET(
-		"/api/v1/users/:user_id/orders",
+		"/api/v1/user/:user_id/orders",
 		handler.GetUserOrders,
 	)
 	router.PUT(
@@ -122,7 +128,7 @@ func TestCreateOrderHandler(t *testing.T) {
 	router := setupTestRouter(orderService)
 
 	body := `{
-		"user_id": 1,
+		"user_id": 999,
 		"product_id": 35,
 		"quantity": 2
 	}`
@@ -143,6 +149,59 @@ func TestCreateOrderHandler(t *testing.T) {
 		t.Fatalf(
 			"expected status %d, got %d",
 			http.StatusCreated,
+			recorder.Code,
+		)
+	}
+
+	if len(repo.orders) != 1 {
+		t.Fatalf("expected 1 order, got %d", len(repo.orders))
+	}
+
+	if repo.orders[0].UserID != 1 {
+		t.Fatalf(
+			"expected order user_id 1, got %d",
+			repo.orders[0].UserID,
+		)
+	}
+}
+
+func TestGetOrderHandlerForbidden(t *testing.T) {
+	repo := &mockHandlerOrderRepository{
+		orders: []model.Order{
+			{
+				ID:         1,
+				UserID:     2, // Different from authenticated user (1)
+				ProductID:  35,
+				Quantity:   2,
+				TotalPrice: 100000,
+				Status:     model.OrderStatusPending,
+			},
+		},
+	}
+
+	productClient := &mockHandlerProductClient{}
+
+	orderService := service.NewOrderService(
+		repo,
+		productClient,
+	)
+
+	router := setupTestRouter(orderService)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/orders/1",
+		nil,
+	)
+
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf(
+			"expected status %d, got %d",
+			http.StatusForbidden,
 			recorder.Code,
 		)
 	}
@@ -292,7 +351,7 @@ func TestGetUserOrdersHandler(t *testing.T) {
 
 	req := httptest.NewRequest(
 		http.MethodGet,
-		"/api/v1/users/1/orders",
+		"/api/v1/user/1/orders",
 		nil,
 	)
 
@@ -347,6 +406,57 @@ func TestCancelOrderHandler(t *testing.T) {
 			"expected status %d, got %d",
 			http.StatusOK,
 			recorder.Code,
+		)
+	}
+}
+
+func TestCancelOrderHandlerForbidden(t *testing.T) {
+	repo := &mockHandlerOrderRepository{
+		orders: []model.Order{
+			{
+				ID:         1,
+				UserID:     2, // Order belongs to another user.
+				ProductID:  35,
+				Quantity:   2,
+				TotalPrice: 100000,
+				Status:     model.OrderStatusPending,
+			},
+		},
+	}
+
+	productClient := &mockHandlerProductClient{}
+
+	orderService := service.NewOrderService(
+		repo,
+		productClient,
+	)
+
+	router := setupTestRouter(orderService)
+
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"/api/v1/orders/1/cancel",
+		nil,
+	)
+
+	recorder := httptest.NewRecorder()
+
+	router.ServeHTTP(recorder, req)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf(
+			"expected status %d, got %d",
+			http.StatusForbidden,
+			recorder.Code,
+		)
+	}
+
+	// Make sure the order was NOT cancelled.
+	if repo.orders[0].Status != model.OrderStatusPending {
+		t.Fatalf(
+			"expected order status to remain %s, got %s",
+			model.OrderStatusPending,
+			repo.orders[0].Status,
 		)
 	}
 }
